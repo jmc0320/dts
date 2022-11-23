@@ -3,6 +3,9 @@ import time
 import pexpect
 from pexpect import pxssh
 
+import paramiko
+import paramiko_expect
+
 from .debugger import aware_keyintr, ignore_keyintr
 from .exception import SSHConnectionException, SSHSessionDeadException, TimeoutException
 from .utils import GREEN, RED, parallel_lock
@@ -14,7 +17,7 @@ Also supports transfer files to tester or DUT.
 """
 
 
-class SSHPexpect:
+class SSHParamikoExpect:
     def __init__(self, host, username, password, dut_id):
         self.magic_prompt = "MAGIC PROMPT"
         self.logger = None
@@ -22,6 +25,9 @@ class SSHPexpect:
         self.host = host
         self.username = username
         self.password = password
+
+        self.prompt = "[$#>]"
+        self.unique_prompt = "[$#>]"
 
         self._connect_host(dut_id=dut_id)
 
@@ -41,16 +47,15 @@ class SSHPexpect:
                 while retry_times:
                     self.ip = self.host.split(":")[0]
                     self.port = int(self.host.split(":")[1])
-                    self.session = pxssh.pxssh(encoding="utf-8")
+                    self.client = paramiko.SSHClient()
+                    self.client.load_system_host_keys()
+                    self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                     try:
-                        self.session.login(
+                        self.client.connect(
                             self.ip,
+                            self.port,
                             self.username,
-                            self.password,
-                            original_prompt="[$#>]",
-                            port=self.port,
-                            login_timeout=20,
-                            password_regex=r"(?i)(?:password:)|(?:passphrase for key)|(?i)(password for .+:)",
+                            self.password
                         )
                     except Exception as e:
                         print(e)
@@ -62,16 +67,17 @@ class SSHPexpect:
                 else:
                     raise Exception("connect to %s:%s failed" % (self.ip, self.port))
             else:
-                self.session = pxssh.pxssh(encoding="utf-8")
-                self.session.login(
-                    self.host,
-                    self.username,
-                    self.password,
-                    original_prompt="[$#>]",
-                    password_regex=r"(?i)(?:password:)|(?:passphrase for key)|(?i)(password for .+:)",
+                self.client = paramiko.SSHClient()
+                self.client.load_system_host_keys()
+                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.client.connect(
+                    hostname=self.host,
+                    username=self.username,
+                    password=self.password
                 )
-            self.send_expect("stty -echo", "#")
-            self.send_expect("stty columns 1000", "#")
+            self.session = paramiko_expect.SSHClientInteraction(self.client, timeout=10, display=True)
+#self.send_expect("stty -echo", "#")
+#            self.send_expect("stty columns 1000", "#")
         except Exception as e:
             print(RED(e))
             if getattr(self, "port", None):
@@ -90,16 +96,17 @@ class SSHPexpect:
     def send_expect_base(self, command, expected, timeout):
         ignore_keyintr()
         self.clean_session()
-        self.session.PROMPT = expected
-        self.__sendline(command)
-        self.__prompt(command, timeout)
+        self.prompt = expected
+        self.session.send(command)
+        self.session.expect(self.prompt, timeout)
+# self.__sendline(command)
+#        self.__prompt(command, timeout)
         aware_keyintr()
 
         before = self.get_output_before()
         return before
 
     def send_expect(self, command, expected, timeout=15, verify=False):
-
         try:
             ret = self.send_expect_base(command, expected, timeout)
             if verify:
@@ -131,9 +138,8 @@ class SSHPexpect:
             raise (e)
 
         output = self.get_session_before(timeout=timeout)
-        breakpoint()
-        self.session.PROMPT = self.session.UNIQUE_PROMPT # pexpect's default unique prompt that replaces the server's original prompt: '[PEXPECT]'
-        self.session.prompt(0.1)
+        self.prompt = self.unique_prompt
+        self.session.expect(self.prompt, 0.1)
 
         return output
 
@@ -144,61 +150,46 @@ class SSHPexpect:
         """
         Get all output before timeout
         """
-        ignore_keyintr()
-        self.session.PROMPT = self.magic_prompt
-        try:
-            self.session.prompt(timeout)
-        except Exception as e:
-            pass
-
-        aware_keyintr()
         before = self.get_output_all()
         self.__flush()
-
         return before
 
     def __flush(self):
         """
         Clear all session buffer
         """
-        self.session.buffer = ""
-        self.session.before = ""
+        self.session.current_output = ""
+        self.session.current_output_clean = ""
 
     def __prompt(self, command, timeout):
-        if not self.session.prompt(timeout):
+        self.prompt += '.*'
+        if not self.session.expect(self.prompt, timeout, strip_ansi=False):
             raise TimeoutException(command, self.get_output_all()) from None
 
     def __sendline(self, command):
         if not self.isalive():
             raise SSHSessionDeadException(self.host)
-        if len(command) == 2 and command.startswith("^"):
-            self.session.sendcontrol(command[1])
-        else:
-            self.session.sendline(command)
+        self.session.send(command)
 
     def get_output_before(self):
         if not self.isalive():
             raise SSHSessionDeadException(self.host)
-        before = self.session.before.rsplit("\r\n", 1)
-        if before[0] == "[PEXPECT]":
-            before[0] = ""
-
-        return before[0]
+        before = self.session.current_output_clean
+        return before
 
     def get_output_all(self):
-        output = self.session.before
-        output.replace("[PEXPECT]", "")
+        output = self.session.current_output
         return output
 
     def close(self, force=False):
         if force is True:
-            self.session.close()
+            self.client.close()
         else:
             if self.isalive():
-                self.session.logout()
+                self.client.close()
 
     def isalive(self):
-        return self.session.isalive()
+        return self.client.get_transport().is_active()
 
     def copy_file_from(self, src, dst=".", password="", crb_session=None):
         """
