@@ -1,7 +1,6 @@
 import time
-
-import pexpect
-from pexpect import pxssh
+import re
+import pathlib
 
 import paramiko
 import paramiko_expect
@@ -15,19 +14,24 @@ Module handle ssh sessions between tester and DUT.
 Implements send_expect function to send command and get output data.
 Also supports transfer files to tester or DUT.
 """
-
-
 class SSHParamikoExpect:
     def __init__(self, host, username, password, dut_id):
-        self.magic_prompt = "MAGIC PROMPT"
         self.logger = None
 
-        self.host = host
+        if ":" in host:
+            self.host = host.split(":")[0]
+            self.port = int(host.split(":")[1])
+        else:
+            self.host = host
+            self.port = 22
         self.username = username
         self.password = password
 
-        self.prompt = "[$#>]"
-        self.unique_prompt = "[$#>]"
+        self.prompt = r'root@.*:.*#\s+'
+        self.current_output = ''
+
+        self.client = None
+        self.channel = None
 
         self._connect_host(dut_id=dut_id)
 
@@ -43,143 +47,82 @@ class SSHParamikoExpect:
         """
         retry_times = 10
         try:
-            if ":" in self.host:
-                while retry_times:
-                    self.ip = self.host.split(":")[0]
-                    self.port = int(self.host.split(":")[1])
-                    self.client = paramiko.SSHClient()
-                    self.client.load_system_host_keys()
-                    self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    try:
-                        self.client.connect(
-                            self.ip,
-                            self.port,
-                            self.username,
-                            self.password
-                        )
-                    except Exception as e:
-                        print(e)
-                        time.sleep(2)
-                        retry_times -= 1
-                        print("retry %d times connecting..." % (10 - retry_times))
-                    else:
-                        break
+            self.client = paramiko.SSHClient()
+            self.client.load_system_host_keys()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            while retry_times:
+                try:
+                    self.client.connect(
+                        self.host,
+                        self.port,
+                        self.username,
+                        self.password
+                    )
+                except Exception as e:
+                    print(e)
+                    time.sleep(2)
+                    retry_times -= 1
+                    print("retry %d times connecting..." % (10 - retry_times))
                 else:
-                    raise Exception("connect to %s:%s failed" % (self.ip, self.port))
+                    break
             else:
-                self.client = paramiko.SSHClient()
-                self.client.load_system_host_keys()
-                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                self.client.connect(
-                    hostname=self.host,
-                    username=self.username,
-                    password=self.password
-                )
-            self.session = paramiko_expect.SSHClientInteraction(self.client, timeout=10, display=True)
-#self.send_expect("stty -echo", "#")
-#            self.send_expect("stty columns 1000", "#")
+                raise Exception("connect to %s:%s failed" % (self.host, self.port))
         except Exception as e:
             print(RED(e))
             if getattr(self, "port", None):
                 suggestion = (
-                    "\nSuggession: Check if the firewall on [ %s ] " % self.ip
+                    "\nSuggession: Check if the firewall on [ %s ] " % self.host
                     + "is stopped\n"
                 )
                 print(GREEN(suggestion))
-
             raise SSHConnectionException(self.host)
+        # we've connected to paramiko, now let's make a paramiko_expect session
+        self.channel = self.client.invoke_shell(term='vt100', width=80, height=24)
+        self.channel.settimeout(5)
+
+        # give shell time to initialize
+        time.sleep(1)
+
+        # initial terminal setup
+        self.send_expect("stty -echo", "#")
+        self.send_expect("stty columns 1000", "#")
 
     def init_log(self, logger, name):
         self.logger = logger
         self.logger.info("ssh %s@%s" % (self.username, self.host))
 
-    def send_expect_base(self, command, expected, timeout):
-        ignore_keyintr()
-        self.clean_session()
-        self.prompt = expected
-        self.session.send(command)
-        self.session.expect(self.prompt, timeout)
-# self.__sendline(command)
-#        self.__prompt(command, timeout)
-        aware_keyintr()
-
-        before = self.get_output_before()
-        return before
-
     def send_expect(self, command, expected, timeout=15, verify=False):
         try:
-            ret = self.send_expect_base(command, expected, timeout)
-            if verify:
-                ret_status = self.send_expect_base("echo $?", expected, timeout)
-                if not int(ret_status):
-                    return ret
-                else:
-                    self.logger.error("Command: %s failure!" % command)
-                    self.logger.error(ret)
-                    return int(ret_status)
-            else:
-                return ret
+            output = self._execute_command(command)
+            self.current_output = output
+            return output
         except Exception as e:
             print(
                 RED(
                     "Exception happened in [%s] and output is [%s]"
-                    % (command, self.get_output_before())
+                    % (command, self.current_output)
                 )
             )
             raise (e)
 
     def send_command(self, command, timeout=1):
-        try:
-            ignore_keyintr()
-            self.clean_session()
-            self.__sendline(command)
-            aware_keyintr()
-        except Exception as e:
-            raise (e)
-
-        output = self.get_session_before(timeout=timeout)
-        self.prompt = self.unique_prompt
-        self.session.expect(self.prompt, 0.1)
-
+        output = self.send_expect(command, expected=self.prompt, timeout=timeout)
         return output
-
-    def clean_session(self):
-        self.get_session_before(timeout=0.01)
 
     def get_session_before(self, timeout=15):
         """
         Get all output before timeout
         """
-        before = self.get_output_all()
-        self.__flush()
-        return before
+        extra_output = self.__flush()
+        if extra_output:
+            self.current_output += extra_output
+        return self.current_output
 
     def __flush(self):
         """
         Clear all session buffer
         """
-        self.session.current_output = ""
-        self.session.current_output_clean = ""
-
-    def __prompt(self, command, timeout):
-        self.prompt += '.*'
-        if not self.session.expect(self.prompt, timeout, strip_ansi=False):
-            raise TimeoutException(command, self.get_output_all()) from None
-
-    def __sendline(self, command):
-        if not self.isalive():
-            raise SSHSessionDeadException(self.host)
-        self.session.send(command)
-
-    def get_output_before(self):
-        if not self.isalive():
-            raise SSHSessionDeadException(self.host)
-        before = self.session.current_output_clean
-        return before
-
-    def get_output_all(self):
-        output = self.session.current_output
-        return output
+        self._recv()
 
     def close(self, force=False):
         if force is True:
@@ -195,61 +138,80 @@ class SSHParamikoExpect:
         """
         Copies a file from a remote place into local.
         """
-        command = "scp -v {0}@{1}:{2} {3}".format(self.username, self.host, src, dst)
-        if ":" in self.host:
-            command = "scp -v -P {0} -o NoHostAuthenticationForLocalhost=yes {1}@{2}:{3} {4}".format(
-                str(self.port), self.username, self.ip, src, dst
-            )
-        if password == "":
-            self._spawn_scp(command, self.password, crb_session)
-        else:
-            self._spawn_scp(command, password, crb_session)
+        # TODO
+        pass
 
     def copy_file_to(self, src, dst="~/", password="", crb_session=None):
         """
         Sends a local file to a remote place.
         """
-        command = "scp {0} {1}@{2}:{3}".format(src, self.username, self.host, dst)
-        if ":" in self.host:
-            command = "scp -v -P {0} -o NoHostAuthenticationForLocalhost=yes {1} {2}@{3}:{4}".format(
-                str(self.port), src, self.username, self.ip, dst
-            )
-        else:
-            command = "scp -v {0} {1}@{2}:{3}".format(
-                src, self.username, self.host, dst
-            )
-        if password == "":
-            self._spawn_scp(command, self.password, crb_session)
-        else:
-            self._spawn_scp(command, password, crb_session)
+        # create pathlib.Path objects
+        full_src_path = pathlib.Path(src).resolve()
+        full_dst_path = pathlib.Path(dst)
+        
+        # fix relative path on remote side - repace ~ with /root
+        full_dst_path = pathlib.Path(str(full_dst_path).replace('~', '/root'))
 
-    def _spawn_scp(self, scp_cmd, password, crb_session):
-        """
-        Transfer a file with SCP
-        """
-        self.logger.info(scp_cmd)
-        # if crb_session is not None, copy file from/to crb env
-        # if crb_session is None, copy file from/to current dts env
-        if crb_session is not None:
-            crb_session.session.clean_session()
-            crb_session.session.__sendline(scp_cmd)
-            p = crb_session.session.session
-        else:
-            p = pexpect.spawn(scp_cmd)
-        time.sleep(0.5)
-        ssh_newkey = "Are you sure you want to continue connecting"
-        i = p.expect(
-            [ssh_newkey, "[pP]assword", "# ", pexpect.EOF, pexpect.TIMEOUT], 120
-        )
-        if i == 0:  # add once in trust list
-            p.sendline("yes")
-            i = p.expect([ssh_newkey, "[pP]assword", pexpect.EOF], 2)
+        # get filename from src
+        filename = full_src_path.name
 
-        if i == 1:
-            time.sleep(0.5)
-            p.sendline(password)
-            p.expect("Exit status 0", 60)
-        if i == 4:
-            self.logger.error("SCP TIMEOUT error %d" % i)
-        if crb_session is None:
-            p.close()
+        # add filename to dest
+        full_dst_path = full_dst_path / filename
+
+        # send via sftp_client
+        sftp_client = self.client.open_sftp()
+        sftp_client.put(str(full_src_path), str(full_dst_path))
+        sftp_client.close()
+
+
+    def _execute_command(self, command, wait_for_command=1, display=False):
+        command = self._format_command(command)
+        self._send(command)
+        time.sleep(wait_for_command)
+        output = self._recv()
+        output = self._cleanup_byte_string(output)
+
+        if display:
+            print(output, end='')
+
+        return output
+
+
+    def _format_command(self, command):
+        # make sure command ends with a newline character
+        tailing_newline = re.compile(r'\n+\s*$')
+        if not tailing_newline.search(command):
+            command += '\n'
+        return command
+
+
+    def _cleanup_byte_string(self, byte_string):
+        # convert to string
+        decoded = byte_string.decode()
+
+        # remove ansi codes
+        ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
+        no_ansi = ansi_escape.sub('', decoded)
+
+        # TODO remove command from beginning
+        # TODO remove prompt from end
+
+        return no_ansi
+
+
+    # will block/timout if send is not ready
+    def _send(self, data):
+        bytes_sent = 0
+        while bytes_sent < len(data):
+            bytes_sent += self.channel.send(data[bytes_sent:])
+        return bytes_sent
+
+
+    # will not block
+    # might not get everything if there are delays in output
+    def _recv(self):
+        output = b''
+        while self.channel.recv_ready():
+            output += self.channel.recv(4096)
+        return output
+
