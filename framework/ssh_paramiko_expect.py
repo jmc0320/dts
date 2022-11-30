@@ -3,7 +3,6 @@ import re
 import pathlib
 
 import paramiko
-import paramiko_expect
 
 from .debugger import aware_keyintr, ignore_keyintr
 from .exception import SSHConnectionException, SSHSessionDeadException, TimeoutException
@@ -27,10 +26,16 @@ class SSHParamikoExpect:
         self.username = username
         self.password = password
 
+        # default prompt - for debug
         self.prompt = r'root@.*:.*#\s+'
+
+        # saves the output of the last call to send_expect
         self.current_output = ''
 
+        # paramiko client
         self.client = None
+
+        # paramiko Channel object
         self.channel = None
 
         self._connect_host(dut_id=dut_id)
@@ -77,8 +82,10 @@ class SSHParamikoExpect:
                 print(GREEN(suggestion))
             raise SSHConnectionException(self.host)
 
-        # we've connected to paramiko, now let's make a paramiko_expect session
+        # we've connected to paramiko, now let's make a channel that is connected to a shell session
         self.channel = self.client.invoke_shell(term='vt100', width=80, height=24)
+
+        # default timeout, overridded by timout value given in send_expect
         self.channel.settimeout(5)
 
         # give shell time to initialize
@@ -96,7 +103,7 @@ class SSHParamikoExpect:
         try:
             ignore_keyintr()
 
-            # flush receive
+            # flush any output sitting on the recv socket
             self.get_session_before()
 
             # clear current output so we can get new output
@@ -108,20 +115,21 @@ class SSHParamikoExpect:
             # generate a regex to match expected
             expected_re = re.compile(expected)
 
-            # check lines of output for expected
-            # save everything before expected
-            output_lines = output.split('\n')
-            for line in output_lines:
-                if expected_re.search(line):
-                    index = output_lines.index(line)
-                    output_lines_minus_prompt = output_lines[:index]
-                    output = '\n'.join(output_lines_minus_prompt)
-                    break
 
-            self.current_output = output
+            # check output for a match
+            match = expected_re.search(output)
+            if match:
+                index = match.start()
 
+                # keep everything before expected
+                before = output[:index]
+            else:
+                raise Exception
+
+            # save output to current output
+            self.current_output = before
             aware_keyintr()
-            return output
+            return before
         except Exception as e:
             print(
                 RED(
@@ -132,6 +140,7 @@ class SSHParamikoExpect:
             raise (e)
 
     def send_command(self, command, timeout=1):
+        # this should be no different than send_expect?
         output = self.send_expect(command, expected=self.prompt, timeout=timeout)
         return output
 
@@ -194,7 +203,12 @@ class SSHParamikoExpect:
     def _execute_command(self, command, wait_for_command=1, display=False):
         command = self._format_command(command)
         self._send(command)
+
+        # TODO should not pause here, instead wait in _recv() until timeout
         time.sleep(wait_for_command)
+
+        # TODO loop here until we receive our expected?? 
+        # or pass timeout to receive?? wait on receive until expected or timeout?
         output = self._recv()
         output = self._cleanup_byte_string(output)
 
@@ -216,7 +230,7 @@ class SSHParamikoExpect:
         # convert to string
         decoded = byte_string.decode()
 
-        # remove carriage return / '^M' this isn;t working ??? 
+        # remove carriage return: '^M'. This isn't working...
         decoded.replace('\r', '')
 
         # remove ansi codes
@@ -226,7 +240,6 @@ class SSHParamikoExpect:
         return no_ansi
 
 
-    # will block/timout if send is not ready
     def _send(self, data):
         bytes_sent = 0
         while bytes_sent < len(data):
@@ -234,8 +247,7 @@ class SSHParamikoExpect:
         return bytes_sent
 
 
-    # will not block
-    # might not get everything if there are delays in output
+    # TODO insted of checking ready, block and throw a timeout
     def _recv(self):
         output = b''
         while self.channel.recv_ready():
