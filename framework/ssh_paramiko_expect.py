@@ -93,8 +93,30 @@ class SSHParamikoExpect:
 
     def send_expect(self, command, expected, timeout=15, verify=False):
         try:
+            ignore_keyintr()
+
+            # flush receive and clear current output so we can get new output
+            self.get_session_before()
+            self.current_output = ''
+
+            # send command and receive output
             output = self._execute_command(command)
+
+            expected_re = re.compile(expected)
+
+            # check lines of output for expected
+            # save everything before expected
+            output_lines = output.split('\n')
+            for line in output_lines:
+                if expected_re.search(line):
+                    index = output_lines.index(line) + 1
+                    output_lines_minus_prompt = output_lines[:index]
+                    output = '\n'.join(output_lines_minus_prompt)
+                    break
+
             self.current_output = output
+
+            aware_keyintr()
             return output
         except Exception as e:
             print(
@@ -113,16 +135,17 @@ class SSHParamikoExpect:
         """
         Get all output before timeout
         """
-        extra_output = self.__flush()
+        extra_output = self._recv()
         if extra_output:
-            self.current_output += extra_output
+            self.current_output += str(extra_output)
         return self.current_output
 
     def __flush(self):
         """
         Clear all session buffer
         """
-        self._recv()
+        output = self._recv()
+        return output
 
     def close(self, force=False):
         if force is True:

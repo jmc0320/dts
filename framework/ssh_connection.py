@@ -21,7 +21,7 @@ class SSHConnection(object):
     """
 
     def __init__(self, host, session_name, username, password="", dut_id=0):
-        self.session = SSHParamiko(host, username, password, dut_id, 'linux')
+        self.session = SSHParamikoExpect(host, username, password, dut_id)
         self.name = session_name
         connection = {}
         connection[self.name] = self.session
