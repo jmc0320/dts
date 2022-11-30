@@ -76,6 +76,7 @@ class SSHParamikoExpect:
                 )
                 print(GREEN(suggestion))
             raise SSHConnectionException(self.host)
+
         # we've connected to paramiko, now let's make a paramiko_expect session
         self.channel = self.client.invoke_shell(term='vt100', width=80, height=24)
         self.channel.settimeout(5)
@@ -95,13 +96,16 @@ class SSHParamikoExpect:
         try:
             ignore_keyintr()
 
-            # flush receive and clear current output so we can get new output
+            # flush receive
             self.get_session_before()
+
+            # clear current output so we can get new output
             self.current_output = ''
 
             # send command and receive output
             output = self._execute_command(command)
 
+            # generate a regex to match expected
             expected_re = re.compile(expected)
 
             # check lines of output for expected
@@ -109,7 +113,7 @@ class SSHParamikoExpect:
             output_lines = output.split('\n')
             for line in output_lines:
                 if expected_re.search(line):
-                    index = output_lines.index(line) + 1
+                    index = output_lines.index(line)
                     output_lines_minus_prompt = output_lines[:index]
                     output = '\n'.join(output_lines_minus_prompt)
                     break
@@ -212,12 +216,12 @@ class SSHParamikoExpect:
         # convert to string
         decoded = byte_string.decode()
 
+        # remove carriage return / '^M' this isn;t working ??? 
+        decoded.replace('\r', '')
+
         # remove ansi codes
         ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
         no_ansi = ansi_escape.sub('', decoded)
-
-        # TODO remove command from beginning
-        # TODO remove prompt from end
 
         return no_ansi
 
