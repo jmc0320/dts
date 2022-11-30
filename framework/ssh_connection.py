@@ -4,6 +4,8 @@
 
 from .settings import TIMEOUT, USERNAME
 from .ssh_pexpect import SSHPexpect
+from .ssh_paramiko import SSHParamiko
+from .ssh_paramiko_expect import SSHParamikoExpect
 
 """
 Global structure for saving connections
@@ -19,7 +21,7 @@ class SSHConnection(object):
     """
 
     def __init__(self, host, session_name, username, password="", dut_id=0):
-        self.session = SSHPexpect(host, username, password, dut_id)
+        self.session = SSHParamiko(host, username, password, dut_id, 'linux')
         self.name = session_name
         connection = {}
         connection[self.name] = self.session
