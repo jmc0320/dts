@@ -26,16 +26,10 @@ class SSHParamikoExpect:
         self.username = username
         self.password = password
 
-        # default prompt - for debug
-        self.prompt = r'root@.*:.*#\s+'
-
-        # saves the output of the last call to send_expect
+        self.default_prompt = '#'
         self.current_output = ''
 
-        # paramiko client
         self.client = None
-
-        # paramiko Channel object
         self.channel = None
 
         self._connect_host(dut_id=dut_id)
@@ -92,44 +86,76 @@ class SSHParamikoExpect:
         time.sleep(1)
 
         # initial terminal setup
-        self.send_expect("stty -echo", "#")
-        self.send_expect("stty columns 1000", "#")
+        self.set_prompt(self.default_prompt)
+        self.send_expect("stty -echo", self.default_prompt)
+        self.send_expect("stty columns 1000", self.default_prompt)
 
     def init_log(self, logger, name):
         self.logger = logger
         self.logger.info("ssh %s@%s" % (self.username, self.host))
 
+    # overwrites the default prompt
+    # call with self.default_prompt to go back to default prompt
+    def set_prompt(self, prompt):
+        prompt_set_command = f"PS1='{prompt}'"
+        self.send_expect(prompt_set_command, prompt)
+
+
     def send_expect(self, command, expected, timeout=15, verify=False):
         try:
             ignore_keyintr()
+            
+            self.channel.settimeout(timeout)
 
             # flush any output sitting on the recv socket
-            self.get_session_before()
+            self.__flush()
 
             # clear current output so we can get new output
             self.current_output = ''
 
-            # send command and receive output
-            output = self._execute_command(command)
+            # make sure there is a newline at end of command
+            command = self._format_command(command)
 
-            # generate a regex to match expected
-            expected_re = re.compile(expected)
+            # send command, might take multiple calls to channel.send()
+            bytes_sent = 0
+            while bytes_sent < len(command):
+                bytes_sent += self.channel.send(command[bytes_sent:])
 
+            # setup regex for expected
+            expected = expected.strip()
+            re_expected = re.compile(expected)
 
-            # check output for a match
-            match = expected_re.search(output)
-            if match:
-                index = match.start()
+            try:
+                output = ''
+                found_prompt = False
+                while not found_prompt:
+                    current_output_bytes = self.channel.recv(4096)
+                    current_output_decoded = current_output_bytes.decode()
+                    match = re_expected.search(current_output_decoded)
+                    if match:
+                        # save everything UP TO but NOT INCLUDING the matched string
+                        current_output_decoded = current_output_decoded[:match.start()]
+                        output += current_output_decoded
+                        found_prompt = True
+            except Exception as e:
+                raise TimeoutException(command, expected)
+            
+            # remove ansi codes
+            ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
+            no_ansi = ansi_escape.sub('', output)
 
-                # keep everything before expected
-                before = output[:index]
-            else:
-                raise Exception
+            # reverse-split on last carriage return, split[0] is 'before', split[1] is '\r\n' + possible leftovers from prompt...
+            output_split = no_ansi.rsplit('\r\n', 1)
 
-            # save output to current output
+            before = output_split[0]
+
+            # save before to current output
             self.current_output = before
+
             aware_keyintr()
+
             return before
+
         except Exception as e:
             print(
                 RED(
@@ -139,9 +165,10 @@ class SSHParamikoExpect:
             )
             raise (e)
 
+
     def send_command(self, command, timeout=1):
         # this should be no different than send_expect?
-        output = self.send_expect(command, expected=self.prompt, timeout=timeout)
+        output = self.send_expect(command, '#', timeout=timeout)
         return output
 
     def get_session_before(self, timeout=15):
@@ -150,7 +177,7 @@ class SSHParamikoExpect:
         """
         extra_output = self._recv()
         if extra_output:
-            self.current_output += str(extra_output)
+            self.current_output += extra_output.decode()
         return self.current_output
 
     def __flush(self):
@@ -200,24 +227,6 @@ class SSHParamikoExpect:
         sftp_client.close()
 
 
-    def _execute_command(self, command, wait_for_command=1, display=False):
-        command = self._format_command(command)
-        self._send(command)
-
-        # TODO should not pause here, instead wait in _recv() until timeout
-        time.sleep(wait_for_command)
-
-        # TODO loop here until we receive our expected?? 
-        # or pass timeout to receive?? wait on receive until expected or timeout?
-        output = self._recv()
-        output = self._cleanup_byte_string(output)
-
-        if display:
-            print(output, end='')
-
-        return output
-
-
     def _format_command(self, command):
         # make sure command ends with a newline character
         tailing_newline = re.compile(r'\n+\s*$')
@@ -226,28 +235,8 @@ class SSHParamikoExpect:
         return command
 
 
-    def _cleanup_byte_string(self, byte_string):
-        # convert to string
-        decoded = byte_string.decode()
-
-        # remove carriage return: '^M'. This isn't working...
-        decoded.replace('\r', '')
-
-        # remove ansi codes
-        ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
-        no_ansi = ansi_escape.sub('', decoded)
-
-        return no_ansi
-
-
-    def _send(self, data):
-        bytes_sent = 0
-        while bytes_sent < len(data):
-            bytes_sent += self.channel.send(data[bytes_sent:])
-        return bytes_sent
-
-
-    # TODO insted of checking ready, block and throw a timeout
+    # non-blocking recv
+    # if nothing to receive, returns empty string
     def _recv(self):
         output = b''
         while self.channel.recv_ready():
