@@ -81,7 +81,7 @@ class SSHParamikoExpect:
         # we've connected to paramiko, now let's make a channel that is connected to a shell session
         self.channel = self.client.invoke_shell(term='vt100', width=80, height=24)
 
-        # default timeout, overridded by timout value given in send_expect
+        # default timeout, overridden by timout value given in send_expect
         self.channel.settimeout(5)
 
         # give shell time to initialize
@@ -96,8 +96,7 @@ class SSHParamikoExpect:
         self.logger = logger
         self.logger.info("ssh %s@%s" % (self.username, self.host))
 
-    # overwrites the default prompt
-    # call with self.default_prompt to go back to default prompt
+    # overrides the default prompt
     def set_prompt(self, prompt):
         prompt_set_command = f"PS1='{prompt}'"
         self.send_expect(prompt_set_command, prompt)
@@ -109,8 +108,6 @@ class SSHParamikoExpect:
         try:
             ignore_keyintr()
             
-            self.channel.settimeout(timeout)
-
             # flush any output sitting on the recv socket
             self.__flush()
 
@@ -134,7 +131,7 @@ class SSHParamikoExpect:
                 time.sleep(0.2)
 
             # read from recv until expected is found
-            # raise TimeoutException if prompt not found before timeout
+            # raise TimeoutException if not found before timeout
             output = ''
             found_prompt = False
             start_time = time.time()
@@ -154,7 +151,7 @@ class SSHParamikoExpect:
                 # convert bytes to string
                 current_output_decoded = current_output_bytes.decode()
 
-                # TODO find last match
+                # TODO find last match?
                 # check for a match
                 match = re_expected.search(current_output_decoded)
                 if match:
@@ -169,7 +166,7 @@ class SSHParamikoExpect:
             ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
             no_ansi = ansi_escape.sub('', output)
 
-            # reverse-split on last carriage return, split[0] is 'before', split[1] is '\r\n' + possible leftovers from prompt...
+            # reverse-split on last carriage return, split[0] is 'before', split[1] is possible leftovers from prompt...
             output_split = no_ansi.rsplit('\r\n', 1)
 
             before = output_split[0]
@@ -209,7 +206,7 @@ class SSHParamikoExpect:
         """
         Get all output before timeout
         """
-        extra_output = self.flush()
+        extra_output = self.__flush()
         if extra_output:
             self.current_output += extra_output.decode()
         return self.current_output
