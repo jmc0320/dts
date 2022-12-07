@@ -8,6 +8,8 @@ from .debugger import aware_keyintr, ignore_keyintr
 from .exception import SSHConnectionException, SSHSessionDeadException, TimeoutException
 from .utils import GREEN, RED, parallel_lock
 
+INPUT_BUFFER_SIZE = 4096
+
 """
 Module handle ssh sessions between tester and DUT.
 Implements send_expect function to send command and get output data.
@@ -101,7 +103,9 @@ class SSHParamikoExpect:
         self.send_expect(prompt_set_command, prompt)
 
 
+    # TODO when this is correct, refactor/cleanup
     def send_expect(self, command, expected, timeout=15, verify=False):
+
         try:
             ignore_keyintr()
             
@@ -125,20 +129,41 @@ class SSHParamikoExpect:
             expected = expected.strip()
             re_expected = re.compile(expected)
 
-            try:
-                output = ''
-                found_prompt = False
-                while not found_prompt:
-                    current_output_bytes = self.channel.recv(4096)
-                    current_output_decoded = current_output_bytes.decode()
-                    match = re_expected.search(current_output_decoded)
-                    if match:
-                        # save everything UP TO but NOT INCLUDING the matched string
-                        current_output_decoded = current_output_decoded[:match.start()]
-                        output += current_output_decoded
-                        found_prompt = True
-            except Exception as e:
-                raise TimeoutException(command, expected)
+            # wait for recv to be ready
+            while not self.channel.recv_ready():
+                time.sleep(0.2)
+
+            # read from recv until expected is found
+            # raise TimeoutException if prompt not found before timeout
+            output = ''
+            found_prompt = False
+            start_time = time.time()
+            while not found_prompt:
+                # check for timeout
+                current_time = time.time()
+                if current_time - start_time > timeout:
+                    raise TimeoutException(command, expected)
+
+                # get INPUT_BUFFER_SIZE bytes, _recv does not block
+                current_output_bytes = self._recv()
+                if current_output_bytes == '':
+                    # if nothing on output, short pause and try again
+                    time.sleep(0.1)
+                    continue
+
+                # convert bytes to string
+                current_output_decoded = current_output_bytes.decode()
+
+                # TODO find last match
+                # check for a match
+                match = re_expected.search(current_output_decoded)
+                if match:
+                    # save everything UP TO but NOT INCLUDING the matched string
+                    current_output_decoded = current_output_decoded[:match.start()]
+                    found_prompt = True
+
+                # accumulate the output
+                output += current_output_decoded
             
             # remove ansi codes
             ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
@@ -154,7 +179,18 @@ class SSHParamikoExpect:
 
             aware_keyintr()
 
-            return before
+            # check if command returned an error
+            # if error, return error code
+            if verify:
+                ret_status = self.send_expect("echo $?", expected, timeout)
+                if not int(ret_status):
+                    return before
+                else:
+                    self.logger.error("Command: %s failure!" % command)
+                    self.logger.error(before)
+                    return int(ret_status)
+            else:
+                return before
 
         except Exception as e:
             print(
@@ -167,15 +203,13 @@ class SSHParamikoExpect:
 
 
     def send_command(self, command, timeout=1):
-        # this should be no different than send_expect?
-        output = self.send_expect(command, '#', timeout=timeout)
-        return output
+        return self.send_expect(command, '#', timeout=timeout)
 
     def get_session_before(self, timeout=15):
         """
         Get all output before timeout
         """
-        extra_output = self._recv()
+        extra_output = self.flush()
         if extra_output:
             self.current_output += extra_output.decode()
         return self.current_output
@@ -184,7 +218,9 @@ class SSHParamikoExpect:
         """
         Clear all session buffer
         """
-        output = self._recv()
+        output = b''
+        while self.channel.recv_ready():
+            output += self.channel.recv(INPUT_BUFFER_SIZE)
         return output
 
     def close(self, force=False):
@@ -239,7 +275,7 @@ class SSHParamikoExpect:
     # if nothing to receive, returns empty string
     def _recv(self):
         output = b''
-        while self.channel.recv_ready():
-            output += self.channel.recv(4096)
+        if self.channel.recv_ready():
+            output += self.channel.recv(INPUT_BUFFER_SIZE)
         return output
 
