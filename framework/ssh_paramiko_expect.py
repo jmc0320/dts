@@ -126,6 +126,7 @@ class SSHParamikoExpect:
             expected = expected.strip()
             re_expected = re.compile(expected)
 
+            # TODO this might hang
             # wait for recv to be ready
             while not self.channel.recv_ready():
                 time.sleep(0.2)
@@ -218,6 +219,7 @@ class SSHParamikoExpect:
         output = b''
         while self.channel.recv_ready():
             output += self.channel.recv(INPUT_BUFFER_SIZE)
+            time.sleep(0.1)
         return output
 
     def close(self, force=False):

@@ -263,16 +263,23 @@ class DPDKdut(Dut):
             self.send_expect("export PKG_CONFIG_LIBDIR=%s" % pkg_path, "# ")
 
         self.send_expect("rm -rf " + target, "#")
+
+# change prompt for debug
+        self.session.session.set_prompt("UNIQUE_PROMPT")
+
         out = self.send_expect(
             "CC=%s meson -Denable_kmods=True -Dlibdir=lib %s --default-library=%s %s"
             % (toolchain, extra_options, default_library, target),
-            "[~|~\]]# ",
+            "UNIQUE_PROMPT",
             build_time,
         )
         assert "FAILED" not in out, "meson setup failed ..."
 
-        out = self.send_expect("ninja -C %s" % target, "[~|~\]]# ", build_time)
+        out = self.send_expect("ninja -C %s" % target, "UNIQUE_PROMPT ", build_time)
         assert "FAILED" not in out, "ninja complie failed ..."
+
+# reset prompt for debug
+        self.session.session.set_prompt("#")
 
         # copy kmod file to the folder same as make
         out = self.send_expect(
@@ -485,12 +492,18 @@ class DPDKdut(Dut):
             example = "all"
         else:
             example = "/".join(folder_info[folder_info.index("examples") + 1 :])
+# for debug
+        self.session.session.set_prompt('UNIQUE_PROMPT')
+
         out = self.send_expect(
-            "meson configure -Dexamples=%s %s" % (example, self.target), "# "
+            "meson configure -Dexamples=%s %s" % (example, self.target), "UNIQUE_PROMPT"
         )
         assert "FAILED" not in out, "Compilation error..."
-        out = self.send_expect("ninja -C %s" % self.target, "[~|~\]]# ", timeout)
+        out = self.send_expect("ninja -C %s" % self.target, "UNIQUE_PROMPT", timeout)
         assert "FAILED" not in out, "Compilation error..."
+
+# for debug
+        self.session.session.set_prompt("#")
 
         # verify the app build in the config path
         if example != "all":
