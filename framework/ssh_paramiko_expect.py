@@ -203,14 +203,60 @@ class SSHParamikoExpect:
     def send_command(self, command, timeout=1):
         return self.send_expect(command, '#', timeout=timeout)
 
+
     def get_session_before(self, timeout=15):
         """
         Get all output before timeout
+
+        steps:
+            1.  disable interrupts
+            2.  set expected to "magic prompt"
+            3.  prompt(timeout)
+                    clear self.current_output
+                    read from recv until timeout
+            4.  enable interrupts
+            5.  get all output
+                   no additional step needed, output is in self.current_output 
+            6.  flush recv
+            7.  return all output
         """
-        extra_output = self.__flush()
-        if extra_output:
-            self.current_output += extra_output.decode()
-        return self.current_output
+        ignore_keyintr()
+
+        self.current_output = ''
+        expected_prompt = 'magic_prompt'
+
+        output = ''
+        found_prompt = False
+        start_time = time.time()
+        while not found_prompt:
+            current_time = time.time()
+            if current_time - start_time > timeout:
+                break
+
+            current_output_bytes = self._recv()
+            if current_output_bytes == '':
+                time.sleep(0.1)
+                continue
+
+            current_output_decoded = current_output_bytes.decode()
+            re_expected = re.compile(expected_prompt)
+            match = re_expected.search(current_output_decoded)
+            if match:
+                current_output_decoded = current_output_decoded[:match.start()]
+                found_prompt = True
+            output += current_output_decoded
+
+        ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
+        no_ansi = ansi_escape.sub('', output)
+
+        output_split = no_ansi.rsplit('\r\n', 1)
+        before = output_split[0]
+        self.current_output = before
+
+        aware_keyintr()
+        self.__flush()
+        return before
+
 
     def __flush(self):
         """
@@ -220,6 +266,7 @@ class SSHParamikoExpect:
         while self.channel.recv_ready():
             output += self.channel.recv(INPUT_BUFFER_SIZE)
             time.sleep(0.1)
+        self.current_output = ''
         return output
 
     def close(self, force=False):
