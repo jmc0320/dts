@@ -50,7 +50,7 @@ class ConnectionTests(unittest.TestCase):
         output = self.session.send_expect('scapy', '>>>', timeout=15, verify=False)
         output = self.session.send_expect('quit()', '#', timeout=15, verify=False)
 
-    def test_whitspace_in_prompt(self):
+    def test_whitespace_in_prompt(self):
         cmd = "echo 'test message'"
         white_space_prompt = '# '
         output = self.session.send_expect(cmd, white_space_prompt, timeout = 15, verify=False)
@@ -72,6 +72,13 @@ class ConnectionTests(unittest.TestCase):
         prompt = '#'
         output = self.session.send_expect(invalid_cmd, prompt, timeout = 15, verify=True)
         self.assertEqual(output, 127)
+
+    def test_get_session_before(self):
+        cmd = 'ls -la'
+        prompt = '#'
+        output = self.session.send_expect(cmd, prompt)
+        before = self.session.get_session_before(2)
+        print(before)
 
 
 if __name__ == '__main__':
