@@ -80,6 +80,11 @@ class ConnectionTests(unittest.TestCase):
         before = self.session.get_session_before(2)
         print(before)
 
+    def test_copy_file_to(self):
+        pass
+
+    def test_copy_file_from(self):
+        pass
 
 if __name__ == '__main__':
     unittest.main()

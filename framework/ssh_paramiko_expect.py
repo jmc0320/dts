@@ -207,8 +207,6 @@ class SSHParamikoExpect:
     def get_session_before(self, timeout=15):
         """
         Get all output before timeout
-
-        steps:
             1.  disable interrupts
             2.  set expected to "magic prompt"
             3.  prompt(timeout)
