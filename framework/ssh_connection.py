@@ -4,6 +4,7 @@
 
 from .settings import TIMEOUT, USERNAME
 from .ssh_pexpect import SSHPexpect
+from .ssh_paramiko import SSHParamiko
 
 """
 Global structure for saving connections
@@ -18,8 +19,15 @@ class SSHConnection(object):
     Implement send_expect/copy function upper SSHPexpect module.
     """
 
-    def __init__(self, host, session_name, username, password="", dut_id=0):
-        self.session = SSHPexpect(host, username, password, dut_id)
+    def __init__(self, host, session_name, username, os_type, password="", dut_id=0):
+        # if os_type == 'linux':
+        #     self.session = SSHParamiko(host, username, password, dut_id, os_type)
+        # elif os_type == 'windows':
+        #     self.session = SSHParamiko(host, username, password, dut_id, '$')
+        # else:
+        self.session = SSHParamiko(host, username, password, dut_id, os_type)
+
+        # self.session = SSHPexpect(host, username, password, dut_id, os_type)
         self.name = session_name
         connection = {}
         connection[self.name] = self.session

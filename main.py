@@ -11,6 +11,7 @@ import argparse
 import os
 import subprocess
 import sys
+from datetime import datetime, date
 
 from framework import dts
 
@@ -185,6 +186,10 @@ if args.git is not None:
         sys.exit()
 
 # Main program begins here
+f = open('/home/user/terminal.txt', 'w')
+f.write("New file " + date.today().strftime("%d/%m/%Y %H:%M:%S") + '\n')
+f.close()
+
 dts.run_all(
     args.config_file,
     args.snapshot,

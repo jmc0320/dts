@@ -1,0 +1,727 @@
+From 314f7a70381b1c683a44492d8992389cbccd28e3 Mon Sep 17 00:00:00 2001
+From: Pallavi Kadam <pallavi.kadam@intel.com>
+Date: Fri, 14 Oct 2022 23:50:55 +0530
+Subject: [PATCH 2/2] dts: support Windows DUT
+
+---
+ framework/config.py         |   4 +-
+ framework/crb.py            |  34 ++++
+ framework/project_dpdk.py   |  41 ++--
+ framework/ssh_connection.py |  12 +-
+ framework/ssh_paramiko.py   | 374 ++++++++++++++++++++++++++++++++++++
+ framework/ssh_pexpect.py    |  10 +-
+ framework/tester.py         |   8 +-
+ main.py                     |   5 +
+ 8 files changed, 467 insertions(+), 21 deletions(-)
+ create mode 100644 framework/ssh_paramiko.py
+
+diff --git a/framework/config.py b/framework/config.py
+index 2cd95ff2..3a855b76 100644
+--- a/framework/config.py
++++ b/framework/config.py
+@@ -293,7 +293,9 @@ class CrbsConf(UserConf):
+                 elif key == "dut_passwd":
+                     crb["pass"] = value
+                 elif key == "os":
+-                    crb["OS"] = value
++                    crb["dut_os"] = value
++                elif key == 'tester_os':
++                    crb['tester_os'] = value
+                 elif key == "tester_ip":
+                     crb["tester IP"] = value
+                 elif key == "tester_passwd":
+diff --git a/framework/crb.py b/framework/crb.py
+index bd16004a..76beae57 100644
+--- a/framework/crb.py
++++ b/framework/crb.py
+@@ -42,11 +42,16 @@ class Crb(object):
+         self.default_hugepages_cleared = False
+         self.prefix_list = []
+ 
++        #pydevd.settrace('10.166.241.29', port=50001, stdoutToServer=True, stderrToServer=True)
++        # Assign os value depending on dut_os or tester_os based on class type
++        self.os_type = self.set_os_type(crb)
++
+         self.logger = getLogger(name)
+         self.session = SSHConnection(
+             self.get_ip_address(),
+             name,
+             self.get_username(),
++            self.os_type,
+             self.get_password(),
+             dut_id,
+         )
+@@ -56,12 +61,38 @@ class Crb(object):
+                 self.get_ip_address(),
+                 name + "_alt",
+                 self.get_username(),
++                self.os_type,
+                 self.get_password(),
+                 dut_id,
+             )
+             self.alt_session.init_log(self.logger)
+         else:
+             self.alt_session = None
++    
++    def set_os_type(self, crb):
++        """
++        Returns the os type for the crb instance.
++        If the key is not found or if unknown child class,
++        return Linux.
++        
++        :param crb: crb config file
++        :type crb: dict
++        :return: os type
++        :rtype: string
++        """
++
++        classname = self.__class__.__name__
++
++        try:
++            if classname == 'DPDKtester':
++                return 'linux'
++                # return crb['tester_os']
++            elif classname == 'DPDKdut':
++                return crb['dut_os']
++            else:
++                return 'linux'
++        except [KeyError]:
++            return 'linux'
+ 
+     def get_ip_address(self):
+         """
+@@ -117,6 +148,7 @@ class Crb(object):
+             self.get_ip_address(),
+             name,
+             self.get_username(),
++            self.os_type,
+             self.get_password(),
+             dut_id=self.dut_id,
+         )
+@@ -153,6 +185,7 @@ class Crb(object):
+                 self.get_ip_address(),
+                 self.name + "_alt",
+                 self.get_username(),
++                self.os_type,
+                 self.get_password(),
+             )
+             self.alt_session = session
+@@ -161,6 +194,7 @@ class Crb(object):
+                 self.get_ip_address(),
+                 self.name,
+                 self.get_username(),
++                self.os_type,
+                 self.get_password(),
+             )
+             self.session = session
+diff --git a/framework/project_dpdk.py b/framework/project_dpdk.py
+index c20aa044..1f5ddc94 100644
+--- a/framework/project_dpdk.py
++++ b/framework/project_dpdk.py
+@@ -35,6 +35,7 @@ class DPDKdut(Dut):
+ 
+     def __init__(self, crb, serializer, dut_id=0, name=None, alt_session=True):
+         super(DPDKdut, self).__init__(crb, serializer, dut_id, name, alt_session)
++       # self.crb = crb
+         self.testpmd = None
+ 
+     def set_target(self, target, bind_dev=True):
+@@ -263,15 +264,17 @@ class DPDKdut(Dut):
+             self.send_expect("export PKG_CONFIG_LIBDIR=%s" % pkg_path, "# ")
+ 
+         self.send_expect("rm -rf " + target, "#")
++        # Changed the prompt - not sure why it was differnet?
+         out = self.send_expect(
+             "CC=%s meson -Denable_kmods=True -Dlibdir=lib %s --default-library=%s %s"
+             % (toolchain, extra_options, default_library, target),
+-            "[~|~\]]# ",
++            "# ",
+             build_time,
+         )
+         assert "FAILED" not in out, "meson setup failed ..."
++        # Changed the prompt - not sure why it was differnet?
+ 
+-        out = self.send_expect("ninja -C %s" % target, "[~|~\]]# ", build_time)
++        out = self.send_expect("ninja -C %s" % target, "# ", build_time)
+         assert "FAILED" not in out, "ninja complie failed ..."
+ 
+         # copy kmod file to the folder same as make
+@@ -318,7 +321,7 @@ class DPDKdut(Dut):
+             else:
+                 assert os.path.isfile(self.package) is True, "Invalid package"
+ 
+-            p_dir, _ = os.path.split(self.base_dir)
++            p_dir, _ = os.path.split(self.base_dir)   #~ /dpdk
+             # ToDo: make this configurable
+             dst_dir = "/tmp/"
+ 
+@@ -334,7 +337,17 @@ class DPDKdut(Dut):
+                     "Directory %s or %s does not exist,"
+                     "please check params -d" % (p_dir, dst_dir)
+                 )
++            # If os is windows, create a tmp folder in the C drive
++            #if self.os_type == 'windows':
++            #   win_dir = "/mnt/c/tmp/"
++            #    out = self.send_expect("ls -d %s" % win_dir, "$", verify=True)
++            #    if out == 2:
++            #        self.send_expect("mkdir -p %s" % win_dir, "$")
+             self.session.copy_file_to(self.package, dst_dir, crb_session=session_info)
++            #if os is windows dpdk tar is now in c drive tmp folder, need to move it
++            #if self.os_type == 'windows':
++            #    self.send_expect("cd /mnt/c/tmp/", "$")
++            #    self.send_expect("mv dpdk.tar.gz /tmp/", "$")
+ 
+             # put patches to p_dir/patches/
+             if self.patches is not None:
+@@ -342,24 +355,24 @@ class DPDKdut(Dut):
+                     self.session.copy_file_to("dep/" + p, dst_dir)
+ 
+             # copy QMP file to dut
+-            if ":" not in self.session.name:
+-                out = self.send_expect("ls -d ~/QMP", "# ", verify=True)
+-                if isinstance(out, int):
+-                    self.send_expect("mkdir -p ~/QMP", "# ")
+-                self.session.copy_file_to("dep/QMP/qemu-ga-client", "~/QMP/")
+-                self.session.copy_file_to("dep/QMP/qmp.py", "~/QMP/")
+-            self.kill_all()
++            # if ":" not in self.session.name:
++            #     out = self.send_expect("ls -d ~/QMP", "# ", verify=True)
++            #     if isinstance(out, int):
++            #         self.send_expect("mkdir -p ~/QMP", "# ")
++            #     self.session.copy_file_to("dep/QMP/qemu-ga-client", "~/QMP/")
++            #     self.session.copy_file_to("dep/QMP/qmp.py", "~/QMP/")
++            #self.kill_all()
+ 
+             # enable core dump
+-            self.send_expect("ulimit -c unlimited", "#")
++            #self.send_expect("ulimit -c unlimited", "#", verify=True)
+ 
+             # unpack the code and change to the working folder
+-            self.send_expect("rm -rf %s" % self.base_dir, "#")
++            #self.send_expect("rm -rf %s" % self.base_dir, "#")
+ 
+             # unpack dpdk
+             out = self.send_expect(
+                 "tar zxfm %s%s -C %s" % (dst_dir, self.package.split("/")[-1], p_dir),
+-                "# ",
++                "#",
+                 60,
+                 verify=True,
+             )
+@@ -489,7 +502,7 @@ class DPDKdut(Dut):
+             "meson configure -Dexamples=%s %s" % (example, self.target), "# "
+         )
+         assert "FAILED" not in out, "Compilation error..."
+-        out = self.send_expect("ninja -C %s" % self.target, "[~|~\]]# ", timeout)
++        out = self.send_expect("ninja -C %s" % self.target, "# ", timeout)
+         assert "FAILED" not in out, "Compilation error..."
+ 
+         # verify the app build in the config path
+diff --git a/framework/ssh_connection.py b/framework/ssh_connection.py
+index 903b00cd..adb2dedc 100644
+--- a/framework/ssh_connection.py
++++ b/framework/ssh_connection.py
+@@ -4,6 +4,7 @@
+ 
+ from .settings import TIMEOUT, USERNAME
+ from .ssh_pexpect import SSHPexpect
++from .ssh_paramiko import SSHParamiko
+ 
+ """
+ Global structure for saving connections
+@@ -18,8 +19,15 @@ class SSHConnection(object):
+     Implement send_expect/copy function upper SSHPexpect module.
+     """
+ 
+-    def __init__(self, host, session_name, username, password="", dut_id=0):
+-        self.session = SSHPexpect(host, username, password, dut_id)
++    def __init__(self, host, session_name, username, os_type, password="", dut_id=0):
++        # if os_type == 'linux':
++        #     self.session = SSHParamiko(host, username, password, dut_id, os_type)
++        # elif os_type == 'windows':
++        #     self.session = SSHParamiko(host, username, password, dut_id, '$')
++        # else:
++        self.session = SSHParamiko(host, username, password, dut_id, os_type)
++
++        # self.session = SSHPexpect(host, username, password, dut_id, os_type)
+         self.name = session_name
+         connection = {}
+         connection[self.name] = self.session
+diff --git a/framework/ssh_paramiko.py b/framework/ssh_paramiko.py
+new file mode 100644
+index 00000000..e5012c13
+--- /dev/null
++++ b/framework/ssh_paramiko.py
+@@ -0,0 +1,374 @@
++import re
++import time
++
++import paramiko
++import pexpect
++
++from .debugger import aware_keyintr, ignore_keyintr
++from .exception import SSHConnectionException, SSHSessionDeadException, TimeoutException
++from .utils import GREEN, RED, parallel_lock
++
++"""
++Module handle ssh sessions between tester and DUT for windows
++Implements send_expect function to send command and get output data.
++Also supports transfer files to tester or DUT.
++"""
++
++class SSHParamiko:
++    #WIN = 'windows'
++    #LIN = 'linux'
++    def __init__(self, host, username, password, dut_id, os_type):
++        self.os_type = os_type
++        if self.os_type == "windows":
++        #if os_type == self.WIN:
++            #self.os_type = os_type
++            self.default_prompt = '$'
++            self.new_line = '\r\n'
++        elif self.os_type == "linux":
++        #elif os_type == self.LIN:
++            #self.os_type = os_type
++            self.default_prompt = '#'
++            self.new_line = '\n'
++        self.magic_prompt = "MAGIC PROMPT"
++        self.logger = None
++        self.host = host
++        self.username = username
++        self.password = password
++        self.auto_prompt_reset = False
++        self.isAlive = False
++        self.shout = []
++        self.shin = []
++        self.sherr = []
++        self.f = open('/home/user/terminal.txt', 'a')
++        self._connect_host(dut_id=dut_id)
++
++    @parallel_lock(num=8)
++    def _connect_host(self, dut_id=0):
++        """
++        Create connection to assigned crb, parameter dut_id will be used in
++        parallel_lock thus can assure isolated locks for each crb.
++        Parallel ssh connections are limited to MaxStartups option in SSHD
++        configuration file. By default concurrent number is 10, so default
++        threads number is limited to 8 which less than 10. Lock number can
++        be modified along with MaxStartups value.
++        """
++        retry_times = 10
++        try:
++            if ":" in self.host:
++                while retry_times:
++                    self.ip = self.host.split(":")[0]
++                    self.port = int(self.host.split(":")[1])
++                    self.session = paramiko.SSHClient()
++                    self.session.set_missing_host_key_policy(paramiko.AutoAddPolicy)
++                    try:
++                        self.session.connect(
++                            self.ip,
++                            self.username,
++                            22,
++                            self.password,
++                        )
++                        channel = self.session.invoke_shell()
++                        self.stdin = channel.makefile('wb')
++                        self.stdout = channel.makefile('r')
++                        self.isAlive = True
++                    except Exception as e:
++                        print(e)
++                        time.sleep(2)
++                        retry_times -= 1
++                        print("retry %d times connecting..." % (10 - retry_times))
++                    else:
++                        break
++                else:
++                    raise Exception("connect to %s:%s failed" % (self.ip, self.port))
++            else:
++                self.session = paramiko.SSHClient()
++                self.session.set_missing_host_key_policy(paramiko.AutoAddPolicy())
++                self.session.connect(self.host, 22, self.username, self.password)
++                channel = self.session.invoke_shell()
++                self.stdin = channel.makefile('wb')
++                self.stdout = channel.makefile('r')
++                self.isAlive = True
++
++            if self.os_type == "linux":
++                self.send_expect("stty columns 1000", self.default_prompt)
++            if self.os_type == "windows":
++                self.send_expect("bash.exe", '$')
++            """if self.os_type == self.LIN:
++                self.send_expect("stty columns 1000", self.default_prompt)
++            if self.os_type == self.WIN:
++                self.send_expect("bash.exe", '$')"""
++        except Exception as e:
++            print(RED(e))
++            if getattr(self, "port", None):
++                suggestion = (
++                    "\nSuggession: Check if the firewall on [ %s ] " % self.ip
++                    + "is stopped\n"
++                )
++                print(GREEN(suggestion))
++            raise SSHConnectionException(self.host)
++
++    def init_log(self, logger, name):
++        self.logger = logger
++        self.logger.info("ssh %s@%s" % (self.username, self.host))
++
++    def send_expect_base(self, command, expected, timeout):
++        ignore_keyintr()
++        self.clean_session()
++        self.session.PROMPT = expected
++        self.__sendline(command, expected, timeout)
++        self.__prompt(command, timeout)
++        aware_keyintr()
++
++        before = self.get_output_before()
++
++        return before
++
++    def send_expect(self, command, expected='null', timeout=15, verify=False):
++        if expected == 'null':
++            expected = self.default_prompt
++        try:
++            ret = self.send_expect_base(command, expected, timeout)
++            if verify:
++                ret_status = self.send_expect_base("echo $?", expected, timeout)
++                if not int(ret_status):
++                    # Debug
++                    print(ret)
++                    return ret
++                else:
++                    self.logger.error("Command: %s failure!" % command)
++                    self.logger.error(ret)
++                    return int(ret_status)
++            else:
++                # Debug
++                print(ret)
++                return ret
++        except Exception as e:
++            print(
++                RED(
++                    "Exception happened in [%s] and output is [%s]"
++                    % (command, self.get_output_before())
++                )
++            )
++            raise (e)
++
++    def send_command(self, command, timeout=1):
++        try:
++            ignore_keyintr()
++            self.clean_session()
++            self.__sendline(command, self.default_prompt, timeout)
++            aware_keyintr()
++        except Exception as e:
++            raise (e)
++
++        output = self.get_session_before(timeout=timeout)
++        # self.session.PROMPT = self.session.UNIQUE_PROMPT
++        # self.session.prompt(0.1)
++
++        return output
++
++    def clean_session(self):
++        self.get_session_before(timeout=0.01)
++
++    def get_session_before(self, timeout=15):
++        """
++        Get all output before timeout
++        """
++        ignore_keyintr()
++        self.session.PROMPT = self.magic_prompt
++        # try:
++        #     self.session.prompt(timeout)
++        # except Exception as e:
++        #     pass
++
++        aware_keyintr()
++        before = self.get_output_all()
++        self.__flush()
++        return before
++
++    def __flush(self):
++        """
++        Clear all session buffer
++        """
++        # self.session.buffer = ""
++        # self.session.before = ""
++        # self.stdout =
++        # self.stderr = ""
++        # self.stdin = ""
++
++    def __prompt(self, command, timeout):
++        string = "Hello world"
++        # print("Not sure what to do here")
++        # if not self.session.prompt(timeout):
++        #     raise TimeoutException(command, self.get_output_all()) from None
++
++    def __sendline(self, command, prompt="null", timeout=1):
++        if prompt == 'null':
++            prompt = self.default_prompt
++        if not self.isalive():
++            raise SSHSessionDeadException(self.host)
++        if len(command) == 2 and command.startswith("^"):
++            self.session.sendcontrol(command[1])
++        else:
++            cmd = command.strip(self.new_line)
++            self.stdin.write(cmd + self.new_line)
++            self.stdin.write(self.new_line + self.new_line)
++            #self.shin = self.stdin
++            self.stdin.flush()
++
++            #self.shout = []
++            #self.sherr = []
++            exit_status = 0
++            done = False
++            compare = ""
++            re_obj = re.compile(r"\w")
++            re_cmd = "".join(re_obj.findall(cmd))
++            time.sleep(int(timeout * 0.01))
++            for line in self.stdout:
++                #print(line.strip())
++                self.f.write(self.host + " --- " + line)
++                compare = "".join(re_obj.findall(compare))
++                terminal_line = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]').sub('', line).replace('\b', '').replace(
++                    '\r', '')
++                #line = terminal_line
++                # If it is a long command, then we need to combine multiple lines together to compare
++                #if prompt == 'scp' and done:
++                #    ssh_newkey = "Are you sure you want to continue connecting"
++                #    if ssh_newkey in line:
++                #        self.__sendline('yes', 'scp')
++                #        break
++                #    elif 'Password' in line or 'password' in line:
++                #        self.__sendline(self.scp_password)
++                #        break
++                #if len(cmd) > 30 and cmd and not done:
++                if len(cmd) > 30 and re_cmd in compare and not done:
++                    self.shout = []
++                    # self.shout.append(line)
++                    done = True
++                    compare = ""
++                elif len(cmd) <= 30 and cmd in str(line) and not done:
++                    self.shout = []
++                    if '$' in line:
++                        line = line.split(cmd, 1)[1]
++                        line = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]').sub('', line).replace('\b', '').replace('\r', '')
++                        line = line.strip()
++                        if len(line) >= 1 and line != '\n':
++                            self.shout.append(line)
++                    done = True
++                elif prompt in str(line) and done:
++                    break
++                else:
++                    if prompt == '#' and '$' in str(line) and done:
++                        break
++                    # get rid of 'coloring and formatting' special characters
++                    # terminal_line = line
++                    if terminal_line != '\n':
++                        # if terminal_line[-1] == '\n':
++                        #     terminal_line[-1]
++                        terminal_line = terminal_line.replace("\n","")
++                        self.shout.append(terminal_line)
++                        compare += terminal_line
++            self.stdout.flush()
++
++    def get_output_before(self):
++        if not self.isalive():
++            raise SSHSessionDeadException(self.host)
++        output = self.shout
++        before = '\n'.join(output)
++
++        if before == '':
++            output = self.sherr
++            before = '\n'.join(output)
++        before = before.rsplit("\r\n", 1)
++        if before[0] == "[PEXPECT]":
++            before[0] = ""
++        return before[0]
++
++    def get_output_all(self):
++        output = self.shout
++        output = '\n'.join(output)
++        if output == '':
++            output = self.sherr
++            output = '\n'.join(output)
++        output.replace("[PEXPECT]", "")
++        return output
++
++    def close(self, force=False):
++        self.isAlive = False
++        self.session.close()
++        self.f.close()
++
++    def isalive(self):
++        return self.isAlive
++
++    def copy_file_from(self, src, dst=".", password="", crb_session=None):
++        """
++        Copies a file from a remote place into local.
++        """
++        command = "scp -v {0}@{1}:{2} {3}".format(self.username, self.host, src, dst)
++        if ":" in self.host:
++            command = "scp -v -P {0} -o NoHostAuthenticationForLocalhost=yes {1}@{2}:{3} {4}".format(
++                str(self.port), self.username, self.ip, src, dst
++            )
++        if password == "":
++            self._spawn_scp(command, self.password, crb_session)
++        else:
++            self._spawn_scp(command, password, crb_session)
++
++    def copy_file_to(self, src, dst="~/", password="", crb_session=None):
++        """
++        Sends a local file to a remote place.
++        """
++        command = "scp {0} {1}@{2}:{3}".format(src, self.username, self.host, dst)
++        if ":" in self.host:
++            command = "scp -v -P {0} -o NoHostAuthenticationForLocalhost=yes {1} {2}@{3}:{4}".format(
++                str(self.port), src, self.username, self.ip, dst
++            )
++        else:
++            command = "scp -v {0} {1}@{2}:{3}".format(
++                src, self.username, self.host, dst
++            )
++        if password == "":
++            self._spawn_scp(command, self.password, crb_session)
++        else:
++            self._spawn_scp(command, password, crb_session)
++
++    def _spawn_scp(self, scp_cmd, password, crb_session):
++        """
++        Transfer a file with SCP
++        """
++        self.logger.info(scp_cmd)
++        # if crb_session is not None, copy file from/to crb env
++        # if crb_session is None, copy file from/to current dts env
++        if crb_session is not None:
++            crb_session.session.clean_session()
++            crb_session.session.__sendline(scp_cmd)
++            p = crb_session.session.session
++        # CANT USE PEXPECT ON WINDOWS
++        else:
++            # if self.os_type == 'linux':
++            p = pexpect.spawn(scp_cmd)
++            # else:
++            #     p = self.session
++        # if self.os_type == 'linux':
++        time.sleep(0.5)
++        ssh_newkey = "Are you sure you want to continue connecting"
++        i = p.expect(
++            [ssh_newkey, "[pP]assword", "# ", pexpect.EOF, pexpect.TIMEOUT], 120
++        )
++        if i == 0:  # add once in trust list
++            p.sendline("yes")
++            i = p.expect([ssh_newkey, "[pP]assword", pexpect.EOF], 2)
++
++        if i == 1:
++            time.sleep(0.5)
++            p.sendline(password)
++            p.expect("Exit status 0", 60)
++        if i == 4:
++            self.logger.error("SCP TIMEOUT error %d" % i)
++        if crb_session is None:
++            p.close()
++        # else:
++        #     time.sleep(0.5)
++        #     self.scp_password = password
++        #     self.__sendline(scp_cmd, 'scp')
++
+diff --git a/framework/ssh_pexpect.py b/framework/ssh_pexpect.py
+index 97406896..70af6d2d 100644
+--- a/framework/ssh_pexpect.py
++++ b/framework/ssh_pexpect.py
+@@ -15,13 +15,19 @@ Also supports transfer files to tester or DUT.
+ 
+ 
+ class SSHPexpect:
+-    def __init__(self, host, username, password, dut_id):
++    def __init__(self, host, username, password, dut_id, os_type):
+         self.magic_prompt = "MAGIC PROMPT"
+         self.logger = None
+ 
+         self.host = host
+         self.username = username
+         self.password = password
++        self.os_type = os_type
++
++        if self.os_type == "windows":
++            self.auto_prompt_reset = False
++        else:
++            self.auto_prompt_reset = True
+ 
+         self._connect_host(dut_id=dut_id)
+ 
+@@ -51,6 +57,7 @@ class SSHPexpect:
+                             port=self.port,
+                             login_timeout=20,
+                             password_regex=r"(?i)(?:password:)|(?:passphrase for key)|(?i)(password for .+:)",
++                            auto_prompt_reset=self.auto_prompt_reset,
+                         )
+                     except Exception as e:
+                         print(e)
+@@ -69,6 +76,7 @@ class SSHPexpect:
+                     self.password,
+                     original_prompt="[$#>]",
+                     password_regex=r"(?i)(?:password:)|(?:passphrase for key)|(?i)(password for .+:)",
++                    auto_prompt_reset=self.auto_prompt_reset,
+                 )
+             self.send_expect("stty -echo", "#")
+             self.send_expect("stty columns 1000", "#")
+diff --git a/framework/tester.py b/framework/tester.py
+index 9a228f14..57ebe71d 100644
+--- a/framework/tester.py
++++ b/framework/tester.py
+@@ -87,6 +87,8 @@ class Tester(Crb):
+ 
+         # import scapy moudle to scapy APP
+         out = session.session.send_expect(get_scapy_module_impcmd(), ">>> ")
++		# Clear trash from the buffer
++        session.session.send_expect('\n', ">>> ")
+         if "ImportError" in out or "ModuleNotFoundError" in out:
+             session.logger.warning(f"entering import error: {out}")
+ 
+@@ -95,14 +97,14 @@ class Tester(Crb):
+     def check_scapy_version(self):
+         require_version = "2.4.4"
+         self.scapy_session.get_session_before(timeout=1)
+-        self.scapy_session.send_expect("conf.version", "'")
++        self.scapy_session.send_expect("conf.version", ">>>")
+         out = self.scapy_session.get_session_before(timeout=1)
+-        cur_version = out[: out.find("'")]
++        cur_version = out
+         out = self.session.send_expect("grep scapy requirements.txt", "# ")
+         value = re.search("scapy\s*==\s*(\S*)", out)
+         if value is not None:
+             require_version = value.group(1)
+-        if cur_version != require_version:
++        if require_version not in cur_version:
+             self.logger.warning(
+                 "The scapy vesrion not meet the requirement on tester,"
+                 + "please update your scapy, otherwise maybe some suite will failed"
+diff --git a/main.py b/main.py
+index a4845293..106a327d 100755
+--- a/main.py
++++ b/main.py
+@@ -11,6 +11,7 @@ import argparse
+ import os
+ import subprocess
+ import sys
++from datetime import datetime, date
+ 
+ from framework import dts
+ 
+@@ -185,6 +186,10 @@ if args.git is not None:
+         sys.exit()
+ 
+ # Main program begins here
++f = open('/home/user/terminal.txt', 'w')
++f.write("New file " + date.today().strftime("%d/%m/%Y %H:%M:%S") + '\n')
++f.close()
++
+ dts.run_all(
+     args.config_file,
+     args.snapshot,
+-- 
+2.35.1.windows.2
+

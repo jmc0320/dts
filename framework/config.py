@@ -293,7 +293,9 @@ class CrbsConf(UserConf):
                 elif key == "dut_passwd":
                     crb["pass"] = value
                 elif key == "os":
-                    crb["OS"] = value
+                    crb["dut_os"] = value
+                elif key == 'tester_os':
+                    crb['tester_os'] = value
                 elif key == "tester_ip":
                     crb["tester IP"] = value
                 elif key == "tester_passwd":

@@ -35,6 +35,7 @@ class DPDKdut(Dut):
 
     def __init__(self, crb, serializer, dut_id=0, name=None, alt_session=True):
         super(DPDKdut, self).__init__(crb, serializer, dut_id, name, alt_session)
+       # self.crb = crb
         self.testpmd = None
 
     def set_target(self, target, bind_dev=True):
@@ -263,15 +264,17 @@ class DPDKdut(Dut):
             self.send_expect("export PKG_CONFIG_LIBDIR=%s" % pkg_path, "# ")
 
         self.send_expect("rm -rf " + target, "#")
+        # Changed the prompt - not sure why it was differnet?
         out = self.send_expect(
             "CC=%s meson -Denable_kmods=True -Dlibdir=lib %s --default-library=%s %s"
             % (toolchain, extra_options, default_library, target),
-            "[~|~\]]# ",
+            "# ",
             build_time,
         )
         assert "FAILED" not in out, "meson setup failed ..."
+        # Changed the prompt - not sure why it was differnet?
 
-        out = self.send_expect("ninja -C %s" % target, "[~|~\]]# ", build_time)
+        out = self.send_expect("ninja -C %s" % target, "# ", build_time)
         assert "FAILED" not in out, "ninja complie failed ..."
 
         # copy kmod file to the folder same as make
@@ -318,7 +321,7 @@ class DPDKdut(Dut):
             else:
                 assert os.path.isfile(self.package) is True, "Invalid package"
 
-            p_dir, _ = os.path.split(self.base_dir)
+            p_dir, _ = os.path.split(self.base_dir)   #~ /dpdk
             # ToDo: make this configurable
             dst_dir = "/tmp/"
 
@@ -334,7 +337,17 @@ class DPDKdut(Dut):
                     "Directory %s or %s does not exist,"
                     "please check params -d" % (p_dir, dst_dir)
                 )
+            # If os is windows, create a tmp folder in the C drive
+            #if self.os_type == 'windows':
+            #   win_dir = "/mnt/c/tmp/"
+            #    out = self.send_expect("ls -d %s" % win_dir, "$", verify=True)
+            #    if out == 2:
+            #        self.send_expect("mkdir -p %s" % win_dir, "$")
             self.session.copy_file_to(self.package, dst_dir, crb_session=session_info)
+            #if os is windows dpdk tar is now in c drive tmp folder, need to move it
+            #if self.os_type == 'windows':
+            #    self.send_expect("cd /mnt/c/tmp/", "$")
+            #    self.send_expect("mv dpdk.tar.gz /tmp/", "$")
 
             # put patches to p_dir/patches/
             if self.patches is not None:
@@ -342,24 +355,24 @@ class DPDKdut(Dut):
                     self.session.copy_file_to("dep/" + p, dst_dir)
 
             # copy QMP file to dut
-            if ":" not in self.session.name:
-                out = self.send_expect("ls -d ~/QMP", "# ", verify=True)
-                if isinstance(out, int):
-                    self.send_expect("mkdir -p ~/QMP", "# ")
-                self.session.copy_file_to("dep/QMP/qemu-ga-client", "~/QMP/")
-                self.session.copy_file_to("dep/QMP/qmp.py", "~/QMP/")
-            self.kill_all()
+            # if ":" not in self.session.name:
+            #     out = self.send_expect("ls -d ~/QMP", "# ", verify=True)
+            #     if isinstance(out, int):
+            #         self.send_expect("mkdir -p ~/QMP", "# ")
+            #     self.session.copy_file_to("dep/QMP/qemu-ga-client", "~/QMP/")
+            #     self.session.copy_file_to("dep/QMP/qmp.py", "~/QMP/")
+            #self.kill_all()
 
             # enable core dump
-            self.send_expect("ulimit -c unlimited", "#")
+            #self.send_expect("ulimit -c unlimited", "#", verify=True)
 
             # unpack the code and change to the working folder
-            self.send_expect("rm -rf %s" % self.base_dir, "#")
+            #self.send_expect("rm -rf %s" % self.base_dir, "#")
 
             # unpack dpdk
             out = self.send_expect(
                 "tar zxfm %s%s -C %s" % (dst_dir, self.package.split("/")[-1], p_dir),
-                "# ",
+                "#",
                 60,
                 verify=True,
             )
@@ -489,7 +502,7 @@ class DPDKdut(Dut):
             "meson configure -Dexamples=%s %s" % (example, self.target), "# "
         )
         assert "FAILED" not in out, "Compilation error..."
-        out = self.send_expect("ninja -C %s" % self.target, "[~|~\]]# ", timeout)
+        out = self.send_expect("ninja -C %s" % self.target, "# ", timeout)
         assert "FAILED" not in out, "Compilation error..."
 
         # verify the app build in the config path

@@ -42,11 +42,16 @@ class Crb(object):
         self.default_hugepages_cleared = False
         self.prefix_list = []
 
+        #pydevd.settrace('10.166.241.29', port=50001, stdoutToServer=True, stderrToServer=True)
+        # Assign os value depending on dut_os or tester_os based on class type
+        self.os_type = self.set_os_type(crb)
+
         self.logger = getLogger(name)
         self.session = SSHConnection(
             self.get_ip_address(),
             name,
             self.get_username(),
+            self.os_type,
             self.get_password(),
             dut_id,
         )
@@ -56,12 +61,38 @@ class Crb(object):
                 self.get_ip_address(),
                 name + "_alt",
                 self.get_username(),
+                self.os_type,
                 self.get_password(),
                 dut_id,
             )
             self.alt_session.init_log(self.logger)
         else:
             self.alt_session = None
+    
+    def set_os_type(self, crb):
+        """
+        Returns the os type for the crb instance.
+        If the key is not found or if unknown child class,
+        return Linux.
+        
+        :param crb: crb config file
+        :type crb: dict
+        :return: os type
+        :rtype: string
+        """
+
+        classname = self.__class__.__name__
+
+        try:
+            if classname == 'DPDKtester':
+                return 'linux'
+                # return crb['tester_os']
+            elif classname == 'DPDKdut':
+                return crb['dut_os']
+            else:
+                return 'linux'
+        except [KeyError]:
+            return 'linux'
 
     def get_ip_address(self):
         """
@@ -117,6 +148,7 @@ class Crb(object):
             self.get_ip_address(),
             name,
             self.get_username(),
+            self.os_type,
             self.get_password(),
             dut_id=self.dut_id,
         )
@@ -153,6 +185,7 @@ class Crb(object):
                 self.get_ip_address(),
                 self.name + "_alt",
                 self.get_username(),
+                self.os_type,
                 self.get_password(),
             )
             self.alt_session = session
@@ -161,6 +194,7 @@ class Crb(object):
                 self.get_ip_address(),
                 self.name,
                 self.get_username(),
+                self.os_type,
                 self.get_password(),
             )
             self.session = session

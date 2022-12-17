@@ -1,0 +1,185 @@
+From 4f84db73db4a556fc96549229b2e4086c7b4f562 Mon Sep 17 00:00:00 2001
+From: Pallavi Kadam <pallavi.kadam@intel.com>
+Date: Fri, 14 Oct 2022 23:49:00 +0530
+Subject: [PATCH 1/2] dts: add config
+
+---
+ conf/crbs.cfg   | 45 +++++++++++++++++++++++----------------------
+ conf/pktgen.cfg | 46 +++++++++++++++++++++++-----------------------
+ conf/ports.cfg  | 24 +++++++++++++-----------
+ execution.cfg   |  4 ++--
+ 4 files changed, 61 insertions(+), 58 deletions(-)
+
+diff --git a/conf/crbs.cfg b/conf/crbs.cfg
+index a12e60a4..ecb95f0b 100644
+--- a/conf/crbs.cfg
++++ b/conf/crbs.cfg
+@@ -13,30 +13,31 @@
+ #  snapshot_load_side: tester/dut, specify the dpdk.tar.gz on side
+ #       if value is dut, should combine the params --snapshot to use.
+ #       eg: ./dts --snapshot /root/tester/dpdk.tar.gz
+-[DUT IP1]
+-dut_ip=xxx.xxx.xxx.xxx
+-dut_user=root
+-dut_passwd=
+-os=linux
++[10.166.188.111]
++dut_ip=10.166.188.111
++dut_user=Administrator
++dut_passwd=admin@12
++os=windows
+ dut_arch=
+-tester_ip=xxx.xxx.xxx.xxx
+-tester_passwd=
+-ixia_group=
+-pktgen_group=
+-channels=4
+-bypass_core0=True
+-dut_cores=
+-snapshot_load_side=tester
+-[DUT IP2]
+-dut_ip=yyy.yyy.yyy.yyy
+-dut_user=root
+-dut_passwd=
+-os=linux
+-dut_arch=
+-tester_ip=yyy.yyy.yyy.yyy
+-tester_passwd=
+-pktgen_group=
++tester_ip=10.166.188.85
++tester_passwd=nji91234
++ixia_group=None
++pktgen_group=trex
+ channels=4
+ bypass_core0=True
+ dut_cores=
+ snapshot_load_side=tester
++#[DUT IP2]
++#dut_ip=yyy.yyy.yyy.yyy
++#dut_user=root
++#dut_passwd=
++#os=linux
++#dut_arch=
++#tester_ip=yyy.yyy.yyy.yyy
++#tester_passwd=
++#ixia_group=
++#pktgen_group=
++#channels=4
++#bypass_core0=True
++#dut_cores=
++#snapshot_load_side=tester
+diff --git a/conf/pktgen.cfg b/conf/pktgen.cfg
+index 3176f496..428396c2 100644
+--- a/conf/pktgen.cfg
++++ b/conf/pktgen.cfg
+@@ -22,12 +22,12 @@
+ # pcap_port_num -s P:file: The PCAP packet file to stream. P is the port number.
+ # start_trex: Set to a nonempty value to start trex ourselves.
+ [TREX]
+-trex_root_path=/opt/trex-core-2.26
+-trex_lib_path=/opt/trex/vx.xxx/automation/trex_control_plane/interactive
++trex_root_path=/opt/trex/v2.89
++#trex_lib_path=/opt/trex/vx.xxx/automation/trex_control_plane/interactive
+ config_file=/etc/trex_cfg.yaml
+-server=10.67.111.143
+-pcap_file=/opt/trex-core-2.26/scripts/stl/sample.pcap
+-core_mask=0x3,0x5
++server=10.166.188.85
++pcap_file=/opt/trex/scripts/stl/sample.pcap
++#core_mask=0x3,0x5
+ start_trex=yes
+ 
+ # IXIA port Configuration
+@@ -36,24 +36,24 @@ start_trex=yes
+ # IP       : IXIA server IP address
+ # Ports    : [IXIA port list]
+ # ixia_force100g: We need to set this to enable if we need IXIA port work in 100G mode.
+-[IXIA]
+-ixia_version=6.62
+-ixia_ip=xxx.xxx.xxx.xxx
+-ixia_ports=
+-    card=1,port=1;
+-    card=1,port=2;
+-    card=1,port=3;
+-    card=1,port=4;
+-ixia_force100g=disable
+-[IXIA_NETWORK]
+-ixia_version=9.0
+-ixia_ip=xxx.xxx.xxx.xxx
++#[IXIA]
++#ixia_version=6.62
++#ixia_ip=xxx.xxx.xxx.xxx
++#ixia_ports=
++#    card=1,port=1;
++#    card=1,port=2;
++#    card=1,port=3;
++#    card=1,port=4;
++#ixia_force100g=disable
++#[IXIA_NETWORK]
++#ixia_version=9.0
++#ixia_ip=xxx.xxx.xxx.xxx
+ # ixia network REST server ip address
+-ixnet_api_server_ip=xxx.xxx.xxx.xxx
++#ixnet_api_server_ip=xxx.xxx.xxx.xxx
+ # maximum re-run traffic times, default is 5 times. (optional)
+ #max_retry=5
+-ixia_ports=
+-    card=1,port=1;
+-    card=1,port=2;
+-    card=1,port=3;
+-    card=1,port=4;
++#ixia_ports=
++#    card=1,port=1;
++#    card=1,port=2;
++#    card=1,port=3;
++#    card=1,port=4;
+diff --git a/conf/ports.cfg b/conf/ports.cfg
+index 11023755..1ed445ef 100644
+--- a/conf/ports.cfg
++++ b/conf/ports.cfg
+@@ -10,15 +10,17 @@
+ # [VM NAME] virtual machine name; This section is for virutal scenario
+ # ports =
+ #     dev_idx=device index of ports info, peer=Tester Pci BDF
+-[DUT IP]
++[10.166.188.111]
+ ports =
+-    pci=XX:XX.X,intf=eth0;
+-    pci=YY:YY.Y,mac=XX:XX:XX:XX:XX:XX,peer=ZZ:ZZ.Z,numa=0;
+-    pci=ZZ:ZZ.Y,peer=IXIA:X.Y;
+-    pci=ZZ:ZZ.Y,peer=TREX:X;
+-    pci=0000:XX:XX.X,peer=0000:ZZ:ZZ.Z,tp_ip=127.0.0.1,tp_path=/home/libertyTrailTP_322291/perl;
+-    pci=0000:YY:YY.Y,peer=0000:ZZ:ZZ.Z,sec_port=yes,first_port=XX:XX.X;
+-[VM NAME]
+-ports =
+-    dev_idx=0,peer=0000:XX:XX.X;
+-    dev_idx=1,peer=0000:YY:YY.Y;
++    pci=0000:129:00.1,peer=0000:04:00.0;
++  #  pci=0000:05:00.1,peer=0000:04:00.1;
++#    pci=XX:XX.X,intf=eth0;
++#    pci=YY:YY.Y,mac=XX:XX:XX:XX:XX:XX,peer=ZZ:ZZ.Z,numa=0;
++#    pci=ZZ:ZZ.Y,peer=IXIA:X.Y;
++#    pci=ZZ:ZZ.Y,peer=TREX:X;
++#    pci=0000:XX:XX.X,peer=0000:ZZ:ZZ.Z,tp_ip=127.0.0.1,tp_path=/home/libertyTrailTP_322291/perl;
++#    pci=0000:YY:YY.Y,peer=0000:ZZ:ZZ.Z,sec_port=yes,first_port=XX:XX.X;
++#[VM NAME]
++#ports =
++#    dev_idx=0,peer=0000:XX:XX.X;
++#    dev_idx=1,peer=0000:YY:YY.Y;
+diff --git a/execution.cfg b/execution.cfg
+index 1507527c..831c8666 100644
+--- a/execution.cfg
++++ b/execution.cfg
+@@ -1,7 +1,7 @@
+ [Execution1]
+-crbs=<CRB IP Address>
++crbs=10.166.188.111
+ #using igb_uio please refer to doc/dts_gsg/support_igb_uio.rst
+-drivername=vfio-pci
++drivername=igb_uio
+ build_type=meson
+ test_suites=
+     hello_world,
+-- 
+2.35.1.windows.2
+

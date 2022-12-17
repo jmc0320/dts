@@ -87,6 +87,8 @@ class Tester(Crb):
 
         # import scapy moudle to scapy APP
         out = session.session.send_expect(get_scapy_module_impcmd(), ">>> ")
+		# Clear trash from the buffer
+        session.session.send_expect('\n', ">>> ")
         if "ImportError" in out or "ModuleNotFoundError" in out:
             session.logger.warning(f"entering import error: {out}")
 
@@ -95,14 +97,14 @@ class Tester(Crb):
     def check_scapy_version(self):
         require_version = "2.4.4"
         self.scapy_session.get_session_before(timeout=1)
-        self.scapy_session.send_expect("conf.version", "'")
+        self.scapy_session.send_expect("conf.version", ">>>")
         out = self.scapy_session.get_session_before(timeout=1)
-        cur_version = out[: out.find("'")]
+        cur_version = out
         out = self.session.send_expect("grep scapy requirements.txt", "# ")
         value = re.search("scapy\s*==\s*(\S*)", out)
         if value is not None:
             require_version = value.group(1)
-        if cur_version != require_version:
+        if require_version not in cur_version:
             self.logger.warning(
                 "The scapy vesrion not meet the requirement on tester,"
                 + "please update your scapy, otherwise maybe some suite will failed"
