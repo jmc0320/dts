@@ -197,6 +197,7 @@ class Dut(Crb):
             vm_name + "_host",
             self.get_username(),
             self.get_password(),
+            self.get_os_type()
         )
         self.host_session.init_log(self.logger)
         self.logger.info(

@@ -49,6 +49,7 @@ class Crb(object):
             self.get_username(),
             self.get_password(),
             dut_id,
+            crb['OS']
         )
         self.session.init_log(self.logger)
         if alt_session:
@@ -58,6 +59,7 @@ class Crb(object):
                 self.get_username(),
                 self.get_password(),
                 dut_id,
+                crb['OS']
             )
             self.alt_session.init_log(self.logger)
         else:
@@ -119,6 +121,7 @@ class Crb(object):
             self.get_username(),
             self.get_password(),
             dut_id=self.dut_id,
+            os=self.get_os_type()
         )
         session.init_log(logger)
         self.sessions.append(session)
@@ -154,6 +157,7 @@ class Crb(object):
                 self.name + "_alt",
                 self.get_username(),
                 self.get_password(),
+                os=self.get_os_type()
             )
             self.alt_session = session
         else:
