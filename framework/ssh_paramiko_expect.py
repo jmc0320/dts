@@ -16,7 +16,7 @@ Implements send_expect function to send command and get output data.
 Also supports transfer files to tester or DUT.
 """
 class SSHParamikoExpect:
-    def __init__(self, host, username, password, dut_id):
+    def __init__(self, host, username, password, dut_id, os='linux'):
         self.logger = None
 
         if ":" in host:
@@ -27,6 +27,7 @@ class SSHParamikoExpect:
             self.port = 22
         self.username = username
         self.password = password
+        self.os = os
 
         self.default_prompt = '#'
         self.current_output = ''
@@ -78,16 +79,13 @@ class SSHParamikoExpect:
                 print(GREEN(suggestion))
             raise SSHConnectionException(self.host)
 
-        # we've connected to paramiko, now let's make a channel that is connected to a shell session
-        self.channel = self.client.invoke_shell(term='vt100', width=80, height=24)
-
-        # default timeout, overridden by timout value given in send_expect
-        self.channel.settimeout(5)
-
-        # give shell time to initialize
-        time.sleep(1)
-
         # initial terminal setup
+        self.channel = self.client.invoke_shell(term='vt100', width=80, height=24)
+        self.channel.settimeout(5)
+        time.sleep(1)
+        if self.os == 'windows':
+            self.channel.send('bash.exe\r\n')
+            output = self.get_session_before(5)
         self.set_prompt(self.default_prompt)
         self.send_expect("stty -echo", self.default_prompt)
         self.send_expect("stty columns 1000", self.default_prompt)
@@ -166,6 +164,10 @@ class SSHParamikoExpect:
             # remove ansi codes
             ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
             no_ansi = ansi_escape.sub('', output)
+
+            # remove \x08 characters in windows output
+            extra_char = re.compile(r'\s*\x08')
+            no_ansi = extra_char.sub('', no_ansi)
 
             # reverse-split on last carriage return, split[0] is 'before', split[1] is possible leftovers from prompt...
             output_split = no_ansi.rsplit('\r\n', 1)
@@ -306,14 +308,13 @@ class SSHParamikoExpect:
         sftp_client.put(str(full_src_path), str(full_dst_path))
         sftp_client.close()
 
-
     def _format_command(self, command):
         # make sure command ends with a newline character
-        tailing_newline = re.compile(r'\n+\s*$')
+        re_string = r'\n+\s*$'
+        tailing_newline = re.compile(re_string)
         if not tailing_newline.search(command):
             command += '\n'
         return command
-
 
     # non-blocking recv
     # if nothing to receive, returns empty string

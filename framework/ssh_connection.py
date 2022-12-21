@@ -20,8 +20,8 @@ class SSHConnection(object):
     Implement send_expect/copy function upper SSHPexpect module.
     """
 
-    def __init__(self, host, session_name, username, password="", dut_id=0):
-        self.session = SSHParamikoExpect(host, username, password, dut_id)
+    def __init__(self, host, session_name, username, password="", dut_id=0, os='linux'):
+        self.session = SSHParamikoExpect(host, username, password, dut_id, os)
         self.name = session_name
         connection = {}
         connection[self.name] = self.session

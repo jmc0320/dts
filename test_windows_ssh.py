@@ -16,11 +16,11 @@ class ConnectionTests(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.host = '10.166.189.48'
+        self.host = '10.166.188.98'
         self.session_name = 'Test Session'
-        self.username = 'root'
-        self.password = 's'
-        self.os = 'linux'
+        self.username = 'Administrator'
+        self.password = 'Password1!'
+        self.os = 'windows'
 
         self.session = ssh_connection.SSHConnection(
                 self.host,
@@ -31,6 +31,7 @@ class ConnectionTests(unittest.TestCase):
 
         self.logger = mock.Mock()
         self.session.init_log(self.logger)
+        
 
     def tearDown(self):
         self.session.close()
@@ -45,11 +46,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(output, 'test message')
 
     def test_python_prompt(self):
-        output = self.session.send_expect('python3', '>>>', timeout=15, verify=False)
-        output = self.session.send_expect('quit()', '#', timeout=15, verify=False)
-
-    def test_scapy_prompt(self):
-        output = self.session.send_expect('scapy', '>>>', timeout=15, verify=False)
+        output = self.session.send_expect('python3', '>>>' timeout=15, verify=False)
         output = self.session.send_expect('quit()', '#', timeout=15, verify=False)
 
     def test_whitespace_in_prompt(self):

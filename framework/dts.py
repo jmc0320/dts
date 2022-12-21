@@ -310,6 +310,7 @@ def dts_crbs_init(
 
     testInst = copy.copy(crbInsts[0])
     testInst["My IP"] = crbInsts[0]["tester IP"]
+    testInst["OS"] = 'linux' # tester is always a linux machine
     tester = get_project_obj(project, Tester, testInst, serializer, dut_id=0)
 
     dut_id = 0
