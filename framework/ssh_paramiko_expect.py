@@ -85,8 +85,9 @@ class SSHParamikoExpect:
         time.sleep(1)
         if self.os == 'windows':
             self.channel.send('bash.exe\r\n')
-            output = self.get_session_before(5)
-        self.set_prompt(self.default_prompt)
+            self.get_session_before(1)
+        self.channel.send(f"PS1='{self.default_prompt}'\n")
+        self.get_session_before(1)
         self.send_expect("stty -echo", self.default_prompt)
         self.send_expect("stty columns 1000", self.default_prompt)
 
