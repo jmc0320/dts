@@ -31,7 +31,6 @@ class ConnectionTests(unittest.TestCase):
 
         self.logger = mock.Mock()
         self.session.init_log(self.logger)
-        
 
     def tearDown(self):
         self.session.close()
@@ -46,7 +45,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(output, 'test message')
 
     def test_python_prompt(self):
-        output = self.session.send_expect('python3', '>>>' timeout=15, verify=False)
+        output = self.session.send_expect('python3', '>>>', timeout=15, verify=False)
         output = self.session.send_expect('quit()', '#', timeout=15, verify=False)
 
     def test_whitespace_in_prompt(self):
