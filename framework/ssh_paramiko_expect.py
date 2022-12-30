@@ -94,7 +94,7 @@ class SSHParamikoExpect:
         self.logger = logger
         self.logger.info("ssh %s@%s" % (self.username, self.host))
 
-    # overrides the default prompt
+    # sets the terminal prompt
     def set_prompt(self, prompt):
         prompt_set_command = f"PS1='{prompt}'"
         self.send_expect(prompt_set_command, prompt)
@@ -234,7 +234,7 @@ class SSHParamikoExpect:
                 break
 
             current_output_bytes = self._recv()
-            if current_output_bytes == '':
+            if current_output_bytes == b'':
                 time.sleep(0.1)
                 continue
 
