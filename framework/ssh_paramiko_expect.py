@@ -93,6 +93,7 @@ class SSHParamikoExpect:
         self.__flush()
         self.send_expect("stty -echo", self.default_prompt)
         self.send_expect("stty columns 1000", self.default_prompt)
+        self.send_expect("cd ~", self.default_prompt)
 
     def init_log(self, logger, name):
         self.logger = logger
@@ -297,27 +298,17 @@ class SSHParamikoExpect:
         if self.os == 'linux':
             self._copy_file_to_linux(src, dst, password, crb_session)
         elif self.os == 'windows':
-            dst = "C:\\Users\\Administrator\\"
             self._copy_file_to_windows(src, dst, password, crb_session)
 
     def _copy_file_to_windows(self, src, dst, password="", crb_session=None):
         # create pathlib.Path objects
         full_src_path = pathlib.Path(src).resolve()
-        full_dst_path = pathlib.Path(dst)
-        
-        # fix relative path on remote side - repace ~ with /root
-        full_dst_path = pathlib.Path(str(full_dst_path).replace('~', '/root'))
-
-        # get filename from src
         filename = full_src_path.name
-
-        # add filename to dest
-        full_dst_path = full_dst_path / filename
-
-        # send via sftp_client
         sftp_client = self.client.open_sftp()
-        sftp_client.put(str(full_src_path), str(full_dst_path))
+        sftp_client.put(str(full_src_path), f"C:\\tmp\\{filename}")
         sftp_client.close()
+        # copy from windows location to dst inside WSL
+        self.send_expect(f'mv /mnt/c/tmp/{filename} {dst}', self.default_prompt)
 
     def _copy_file_to_linux(self, src, dst, password="", crb_session=None):
         """
@@ -366,3 +357,16 @@ class SSHParamikoExpect:
             output += self.channel.recv(INPUT_BUFFER_SIZE)
         return output
 
+    def _wait_for_recv_ready(self, timeout=0.5):
+        """
+        waits until there is something to receive
+        returns False if timeout
+        returns True if recv is ready
+        """
+        time_spent_waiting = 0
+        while not self.channel.recv_ready():
+            time.sleep(0.1)
+            time_spent_waiting += 0.1
+            if time_spent_waiting > timeout:
+                return False
+        return True

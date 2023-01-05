@@ -81,12 +81,20 @@ class ConnectionTests(unittest.TestCase):
     def test_copy_file_to(self):
         src = '/tmp/test_file.txt'
         prompt = '#'
+
+        # create a test file
         os.system(f"echo 'this is some text' > {src}")
-        # self.session.copy_file_to(src)
-        output = self.session.send_expect('ls -la', prompt)
+
+        # send to windows machine, and copy to current working dir
+        self.session.copy_file_to(src, '~/')
+
+        # check that file was copied
+        output = self.session.send_expect('ls -la ~/', prompt)
         success = 'test_file.txt' in output
         self.assertTrue(success)
-        self.session.send_expect('rm test_file.txt', prompt)
+
+        # cleanup
+        self.session.send_expect('rm ~/test_file.txt', prompt)
         os.system(f'rm {src}')
 
     def test_copy_file_from(self):
