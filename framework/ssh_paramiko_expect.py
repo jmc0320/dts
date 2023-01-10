@@ -91,6 +91,8 @@ class SSHParamikoExpect:
         self.set_prompt(self.default_prompt)
         self.send_expect("stty -echo", self.default_prompt)
         self.send_expect("stty columns 1000", self.default_prompt)
+        self.send_expect("cd ~", self.default_prompt)
+        self.home_dir = self.send_expect("pwd", self.default_prompt)
 
     def init_log(self, logger, name):
         self.logger = logger
@@ -166,6 +168,10 @@ class SSHParamikoExpect:
             # remove ansi codes
             ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
             no_ansi = ansi_escape.sub('', output)
+
+            # remove backspace
+            backspace = re.compile(r'\x08')
+            no_ansi = backspace.sub('', no_ansi)
 
             # reverse-split on last carriage return, split[0] is 'before', split[1] is possible leftovers from prompt...
             output_split = no_ansi.rsplit('\r\n', 1)
@@ -293,7 +299,7 @@ class SSHParamikoExpect:
         full_dst_path = pathlib.Path(dst)
         
         # fix relative path on remote side - repace ~ with /root
-        full_dst_path = pathlib.Path(str(full_dst_path).replace('~', '/root'))
+        full_dst_path = pathlib.Path(str(full_dst_path).replace('~', self.home_dir))
 
         # get filename from src
         filename = full_src_path.name
