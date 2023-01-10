@@ -1,5 +1,6 @@
 import unittest
 from unittest import mock
+import os
 
 from framework import ssh_connection
 from framework import utils
@@ -78,10 +79,18 @@ class ConnectionTests(unittest.TestCase):
         prompt = '#'
         output = self.session.send_expect(cmd, prompt)
         before = self.session.get_session_before(2)
-        print(before)
 
     def test_copy_file_to(self):
-        pass
+        src = '/tmp/test_file.txt'
+        prompt = '#'
+        os.system(f"echo 'this is some text' > {src}")
+        self.session.copy_file_to(src)
+        output = self.session.send_expect('ls -la', prompt)
+        success = 'test_file.txt' in output
+        self.assertTrue(success)
+        self.session.send_expect('rm test_file.txt', prompt)
+        os.system(f'rm {src}')
+
 
     def test_copy_file_from(self):
         pass
